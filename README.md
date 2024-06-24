@@ -8,6 +8,10 @@ Amazon Redis Session 是一个用于亚马逊爬虫存储 Cookies 的库，基�
 - 支持多种操作，包括设置、获取和删除 Session
 - 适用于亚马逊爬虫的 Cookie 管理
 
+## 交流群
+
+<img src="https://asin1.com/WechatGroup.jpg" alt="微信交流群" width="300">
+
 ## 安装
 
 请确保已安装 Go 语言环境和 Redis 服务器。
