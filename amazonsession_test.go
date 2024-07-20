@@ -75,10 +75,13 @@ func TestNewAmazonSession(t *testing.T) {
 	}
 }
 
-func createTestSession(country string, sessionID string) *Session {
+func createTestSession(country string, sessionID string, token string) *Session {
 	cookies := []*http.Cookie{
 		{
 			Name: "session-id", Value: sessionID, Path: "/", Domain: ".amazon.com", Expires: time.Now().Add(24 * time.Hour),
+		},
+		{
+			Name: "session-token", Value: token, Path: "/", Domain: ".amazon.com", Expires: time.Now().Add(24 * time.Hour),
 		},
 	}
 	return &Session{
@@ -108,7 +111,7 @@ func TestAmazonSessionOperations(t *testing.T) {
 	country := "US"
 
 	// Push a session
-	session1 := createTestSession(country, "session1")
+	session1 := createTestSession(country, "session1", "token1")
 	if err := sessionManager.PushSession(ctx, session1); err != nil {
 		t.Fatalf("PushSession failed: %v", err)
 	}
@@ -123,7 +126,7 @@ func TestAmazonSessionOperations(t *testing.T) {
 	}
 
 	// Push another session
-	session2 := createTestSession(country, "session2")
+	session2 := createTestSession(country, "session2", "token2")
 	if err := sessionManager.PushSession(ctx, session2); err != nil {
 		t.Fatalf("PushSession failed: %v", err)
 	}
@@ -145,5 +148,45 @@ func TestAmazonSessionOperations(t *testing.T) {
 	err = sessionManager.ClearAllCookies(ctx)
 	if err != nil {
 		t.Fatalf("ClearAllCookies failed: %v", err)
+	}
+}
+
+func TestAmazonSessionOperations1(t *testing.T) {
+	ctx := context.Background()
+	cfg := &Config{
+		Addr:     "127.0.0.1:6379",
+		Password: "123456",
+		Db:       10,
+	}
+
+	sessionManager, err := NewAmazonSession(cfg)
+	if err != nil {
+		t.Fatalf("无法连接到 Redis: %v", err)
+	}
+
+	err = sessionManager.ClearAllCookies(ctx)
+	if err != nil {
+		t.Fatalf("ClearAllCookies failed: %v", err)
+	}
+
+	country := "US"
+
+	// Push a session
+	session1 := createTestSession(country, "session1", "token1")
+	if err := sessionManager.PushSession(ctx, session1); err != nil {
+		t.Fatalf("PushSession failed: %v", err)
+	}
+
+	poppedSession, err := sessionManager.PopSession(ctx, country)
+	if err != nil {
+		t.Fatalf("PopSession failed: %v", err)
+	}
+	if poppedSession.SessionID != "session1" {
+		t.Fatalf("Expected session1, got %v", poppedSession.SessionID)
+	}
+
+	session1 = createTestSession(country, "session1", "token1_update")
+	if err := sessionManager.PushSession(ctx, session1); err != nil {
+		t.Fatalf("PushSession failed: %v", err)
 	}
 }

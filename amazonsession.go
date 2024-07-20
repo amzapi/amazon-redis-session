@@ -211,11 +211,20 @@ func (j *AmazonSession) PushSession(ctx context.Context, session *Session) error
 		}
 
 		// check if session id already exists in the list
-		exists, err := j.client.LPos(ctx, sessionIdsKey(session.Country), sessionID, redis.LPosArgs{}).Result()
-		if err != nil && !errors.Is(err, redis.Nil) {
-			return fmt.Errorf("error checking if session ID exists: %v", err)
+		// warning: performance is very poor
+		exists := false
+		ids, err := j.client.LRange(context.Background(), sessionIdsKey(session.Country), 0, -1).Result()
+		if err != nil {
+			return fmt.Errorf("error getting session IDs: %v", err)
 		}
-		if exists == -1 {
+		for _, id := range ids {
+			if id == sessionID {
+				exists = true
+				break
+			}
+		}
+
+		if !exists {
 			// Add the session-id to the list of available session-ids.
 			pipe.RPush(ctx, sessionIdsKey(session.Country), sessionID)
 		}
