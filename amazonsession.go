@@ -168,6 +168,7 @@ func (j *AmazonSession) PushSession(ctx context.Context, session *Session) error
 		if item.Name == "i18n-prefs" ||
 			item.Name == "session-id" ||
 			item.Name == "session-id-time" ||
+			item.Name == "session-token" ||
 			strings.HasPrefix(item.Name, "ubid-") ||
 			strings.HasPrefix(item.Name, "lc-") {
 			cookiesMap[item.Name] = item.Value
@@ -192,14 +193,32 @@ func (j *AmazonSession) PushSession(ctx context.Context, session *Session) error
 
 		// Store the cookies in Redis using Hash data structure.
 		key := cookiesKey(session.Country)
+
+		// Check if the session cookies already exists.
+		sessionExists, err := j.client.HExists(ctx, key, sessionID).Result()
+		if err != nil {
+			return fmt.Errorf("error checking if session cookies exists: %v", err)
+		}
+
+		// update cookies
 		pipe.HSet(ctx, key, sessionID, cookieData)
 
-		lastChecked := time.Now().Unix()
-		pipe.HSet(ctx, key, lastCheckedKey(sessionID), lastChecked)
-		pipe.HSet(ctx, key, usageCountKey(sessionID), 0)
+		// don't exists update usage stats
+		if !sessionExists {
+			lastChecked := time.Now().Unix()
+			pipe.HSet(ctx, key, lastCheckedKey(sessionID), lastChecked)
+			pipe.HSet(ctx, key, usageCountKey(sessionID), 0)
+		}
 
-		// Add the session-id to the list of available session-ids.
-		pipe.RPush(ctx, sessionIdsKey(session.Country), sessionID)
+		// check if session id already exists in the list
+		exists, err := j.client.LPos(ctx, sessionIdsKey(session.Country), sessionID, redis.LPosArgs{}).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return fmt.Errorf("error checking if session ID exists: %v", err)
+		}
+		if exists == -1 {
+			// Add the session-id to the list of available session-ids.
+			pipe.RPush(ctx, sessionIdsKey(session.Country), sessionID)
+		}
 
 		return nil
 	})
