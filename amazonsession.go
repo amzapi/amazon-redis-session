@@ -26,6 +26,10 @@ func cookiesKey(country string) string {
 	return fmt.Sprintf("%s:cookies", country)
 }
 
+func createdAtKey(sessionID string) string {
+	return fmt.Sprintf("%s:created-at", sessionID)
+}
+
 func lastCheckedKey(sessionID string) string {
 	return fmt.Sprintf("%s:last-checked", sessionID)
 }
@@ -76,12 +80,13 @@ type Config struct {
 }
 
 type Session struct {
-	Jar                 *cookiejar.Jar
-	Cookies             []*http.Cookie
-	Country             string
-	SessionID           string
-	UsageCount          int64
-	LastCheckedTimeUnix int64
+	Jar           *cookiejar.Jar // Jar stores the cookies in a cookie jar
+	Cookies       []*http.Cookie // Cookies is a slice of HTTP cookies
+	Country       string         // Country represents the country code for the session
+	SessionID     string         // SessionID is the unique identifier for the session
+	UsageCount    int64          // UsageCount tracks how many times the session has been used
+	LastCheckedAt int64          // LastCheckedAt stores the last time the session was checked, in Unix time
+	CreatedAt     int64          // CreatedAt stores the creation time of the session, in Unix time
 }
 
 func NewAmazonSession(cfg *Config) (*AmazonSession, error) {
@@ -206,6 +211,7 @@ func (j *AmazonSession) PushSession(ctx context.Context, session *Session) error
 		// don't exists update usage stats
 		if !sessionExists {
 			lastChecked := time.Now().Unix()
+			pipe.HSet(ctx, key, createdAtKey(sessionID), lastChecked)
 			pipe.HSet(ctx, key, lastCheckedKey(sessionID), lastChecked)
 			pipe.HSet(ctx, key, usageCountKey(sessionID), 0)
 		}
@@ -251,6 +257,7 @@ func (j *AmazonSession) GetSession(ctx context.Context, country, sessionID strin
 		sessionID,
 		usageCountKey(sessionID),
 		lastCheckedKey(sessionID),
+		createdAtKey(sessionID),
 	}
 
 	res, err := getSessionCmd.Run(ctx, j.client, keys, argv...).Result()
@@ -263,7 +270,7 @@ func (j *AmazonSession) GetSession(ctx context.Context, country, sessionID strin
 		return nil, fmt.Errorf("cast error: Lua script returned unexpected value: %v", res)
 	}
 
-	if len(values) != 3 {
+	if len(values) != 4 {
 		return nil, fmt.Errorf("unepxected number of values returned from Lua script")
 	}
 
@@ -277,7 +284,12 @@ func (j *AmazonSession) GetSession(ctx context.Context, country, sessionID strin
 		return nil, fmt.Errorf("unexpected value returned from Lua script")
 	}
 
-	lastCheckedTimeUnix, err := cast.ToInt64E(values[2])
+	lastCheckedAt, err := cast.ToInt64E(values[2])
+	if err != nil {
+		return nil, fmt.Errorf("unexpected value returned from Lua script")
+	}
+
+	createdAt, err := cast.ToInt64E(values[3])
 	if err != nil {
 		return nil, fmt.Errorf("unexpected value returned from Lua script")
 	}
@@ -305,12 +317,13 @@ func (j *AmazonSession) GetSession(ctx context.Context, country, sessionID strin
 	jar.SetCookies(countryURL, cookies)
 
 	return &Session{
-		Country:             country,
-		Cookies:             cookies,
-		Jar:                 jar,
-		SessionID:           sessionID,
-		UsageCount:          usageCount,
-		LastCheckedTimeUnix: lastCheckedTimeUnix,
+		Country:       country,
+		Cookies:       cookies,
+		Jar:           jar,
+		SessionID:     sessionID,
+		UsageCount:    usageCount,
+		LastCheckedAt: lastCheckedAt,
+		CreatedAt:     createdAt,
 	}, nil
 }
 
@@ -346,7 +359,7 @@ func (j *AmazonSession) GetAllSessions(ctx context.Context) ([]*Session, error) 
 
 	sessions := make([]*Session, 0)
 
-	for i := 0; i < len(data); i += 5 {
+	for i := 0; i < len(data); i += 6 {
 
 		country := cast.ToString(data[i])
 		countryURL, err := j.getCountryURL(country)
@@ -379,12 +392,13 @@ func (j *AmazonSession) GetAllSessions(ctx context.Context) ([]*Session, error) 
 		jar.SetCookies(countryURL, cookies)
 
 		sessions = append(sessions, &Session{
-			Jar:                 jar,
-			Cookies:             cookies,
-			Country:             cast.ToString(data[i]),
-			SessionID:           cast.ToString(data[i+1]),
-			UsageCount:          cast.ToInt64(data[i+4]),
-			LastCheckedTimeUnix: cast.ToInt64(data[i+3]),
+			Jar:           jar,
+			Cookies:       cookies,
+			Country:       cast.ToString(data[i]),
+			SessionID:     cast.ToString(data[i+1]),
+			UsageCount:    cast.ToInt64(data[i+4]),
+			LastCheckedAt: cast.ToInt64(data[i+3]),
+			CreatedAt:     cast.ToInt64(data[i+5]),
 		})
 	}
 
@@ -409,7 +423,7 @@ func (j *AmazonSession) ListSession(ctx context.Context, country string, pgn Pag
 		return nil, fmt.Errorf("cast error: Lua script returned unexpected value: %v", res)
 	}
 	allSession := make([]*Session, 0)
-	for i := 0; i < len(data); i += 4 {
+	for i := 0; i < len(data); i += 5 {
 		cookieData := cast.ToString(data[i+1])
 		// Deserialize the JSON data to recreate the cookiejar.Jar.
 		cookiesMap := make(map[string]string)
@@ -431,12 +445,13 @@ func (j *AmazonSession) ListSession(ctx context.Context, country string, pgn Pag
 		jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 		jar.SetCookies(countryURL, cookies)
 		allSession = append(allSession, &Session{
-			Jar:                 jar,
-			Cookies:             cookies,
-			Country:             country,
-			SessionID:           cast.ToString(data[i]),
-			UsageCount:          cast.ToInt64(data[i+2]),
-			LastCheckedTimeUnix: cast.ToInt64(data[i+3]),
+			Jar:           jar,
+			Cookies:       cookies,
+			Country:       country,
+			SessionID:     cast.ToString(data[i]),
+			UsageCount:    cast.ToInt64(data[i+2]),
+			LastCheckedAt: cast.ToInt64(data[i+3]),
+			CreatedAt:     cast.ToInt64(data[i+4]),
 		})
 	}
 	return allSession, nil
@@ -464,7 +479,7 @@ func (j *AmazonSession) DeleteSession(ctx context.Context, country, sessionID st
 	if err != nil {
 		return err
 	}
-	err = j.client.HDel(ctx, cookiesKey(country), sessionID, lastCheckedKey(sessionID), usageCountKey(sessionID)).Err()
+	err = j.client.HDel(ctx, cookiesKey(country), sessionID, lastCheckedKey(sessionID), createdAtKey(sessionID), usageCountKey(sessionID)).Err()
 	if err != nil {
 		return err
 	}

@@ -13,11 +13,13 @@ var (
 			for _, sessionId in ipairs(sessionIds) do
 				local lastCheckedKey = sessionId .. ":last-checked"
 				local usageCountKey = sessionId .. ":usage-count"
+				local createdAtKey = sessionId .. ":created-at"
 				table.insert(res, countryCode)
 				table.insert(res, sessionId)
 				table.insert(res, redis.call("HGET", key, sessionId))
 				table.insert(res, redis.call("HGET", key, lastCheckedKey))
 				table.insert(res, redis.call("HGET", key, usageCountKey))
+				table.insert(res, redis.call("HGET", key, createdAtKey))
 			end
 		end
 		return res
@@ -32,10 +34,12 @@ var (
 		for _, id in ipairs(ids) do
 			local lastCheckedKey = id .. ":last-checked"
 			local usageCountKey = id .. ":usage-count"
+			local createdAtKey = sessionId .. ":created-at"
 			table.insert(data, id)
 			table.insert(data, redis.call("HGET", KEYS[2], id))
 			table.insert(data, redis.call("HGET", KEYS[2], usageCountKey))
 			table.insert(data, redis.call("HGET", KEYS[2], lastCheckedKey))
+			table.insert(data, redis.call("HGET", KEYS[2], createdAtKey))
 		end
 		return data
 	`)
@@ -47,10 +51,11 @@ var (
 		local cookies = redis.call("HGET", KEYS[1], ARGV[1])
 		local usageCount = redis.call("HINCRBY", KEYS[1], ARGV[2], 1)
 		local lastCheck = redis.call("HGET", KEYS[1], ARGV[3])
+		local createdAt = redis.call("HGET", KEYS[1], ARGV[4])
 		if not cookies then
 			return redis.error_reply("NOT FOUND")
 		end
-		return {cookies, usageCount, lastCheck}
+		return {cookies, usageCount, lastCheck, createdAt}
 	`)
 	// ARGV[1] -> currentTime
 	// ARGV[2] -> timeDiff
