@@ -151,19 +151,6 @@ func (j *AmazonSession) PushSession(ctx context.Context, session *Session) error
 
 	cookies := session.Cookies
 
-	// Get the cookies from the jar.
-	if session.Jar != nil {
-		var countryURL *url.URL
-		// Check if the country domain exists in the map.
-		if domain, found := defaultCountryCodeDomainMap[session.Country]; found {
-			// Attempt to parse the domain into a URL.
-			countryURL, _ = url.Parse(domain)
-		} else {
-			return fmt.Errorf("domain not found for country: %s", session.Country)
-		}
-		cookies = session.Jar.Cookies(countryURL)
-	}
-
 	// Store all cookies in a map.
 	cookiesMap := make(map[string]string)
 
@@ -179,6 +166,25 @@ func (j *AmazonSession) PushSession(ctx context.Context, session *Session) error
 			cookiesMap[item.Name] = item.Value
 			if item.Name == "session-id" {
 				sessionID = item.Value
+			}
+		}
+	}
+
+	// Get the cookies from the jar.
+	if session.Jar != nil {
+		var countryURL *url.URL
+		// Check if the country domain exists in the map.
+		if domain, found := defaultCountryCodeDomainMap[session.Country]; found {
+			// Attempt to parse the domain into a URL.
+			countryURL, _ = url.Parse(domain)
+		} else {
+			return fmt.Errorf("domain not found for country: %s", session.Country)
+		}
+		// merge cookies from jar
+		jarCookies := session.Jar.Cookies(countryURL)
+		if jarCookies != nil && len(jarCookies) > 0 {
+			for _, item := range jarCookies {
+				cookiesMap[item.Name] = item.Value
 			}
 		}
 	}
